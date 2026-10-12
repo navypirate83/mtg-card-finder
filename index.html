@@ -539,6 +539,59 @@
     }
 
     /* =====================================================================
+       NOTES AND RULES (official rulings for the card)
+       ===================================================================== */
+
+    /* The whole box: a rounded panel below the drop-downs */
+    .rulings {
+      margin-top: 28px;
+      overflow: hidden;            /* keeps the title bar inside the rounded corners */
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    /* The title block across the top of the box */
+    .rulings-title {
+      margin: 0;
+      padding: 12px 16px;
+      font-size: 1rem;
+      font-weight: 700;
+      background: var(--surface-hover);
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* The list of rulings (no bullet points) */
+    .rulings-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    /* One ruling, with a thin line between each */
+    .rulings-list li {
+      padding: 14px 16px;
+      line-height: 1.55;
+    }
+    .rulings-list li + li { border-top: 1px solid var(--border); }
+
+    /* The date (and who published it) above each ruling */
+    .ruling-date {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    /* Message shown while loading, or when a card has no rulings */
+    .rulings-message {
+      margin: 0;
+      padding: 14px 16px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    /* =====================================================================
        WIDER SCREENS
        ===================================================================== */
 
@@ -643,6 +696,12 @@
         <select id="versionSelect" class="picker" disabled></select>
       </div>
     </div>
+
+    <!-- Official rulings for the card (hidden until a card is shown) -->
+    <section id="rulings" class="rulings" aria-labelledby="rulingsTitle" hidden>
+      <h2 id="rulingsTitle" class="rulings-title">Notes and Rules</h2>
+      <div id="rulingsBody"></div>
+    </section>
   </main>
 
   <script>
@@ -689,6 +748,8 @@
     const setButton     = document.getElementById('setButton');
     const setList       = document.getElementById('setList');
     const versionSelect = document.getElementById('versionSelect');
+    const rulingsBox    = document.getElementById('rulings');
+    const rulingsBody   = document.getElementById('rulingsBody');
 
     /* =====================================================================
        APP STATE
@@ -1156,6 +1217,10 @@
         setHint(`${plural(prints.length, 'printing')} across ${plural(state.printsBySet.length, 'set')}.`);
         selectSet(startSet, startPrint);
         if (face === 1) showFace(1);       // a shared link may ask for the back side
+
+        // Rulings are the same for every printing, so fetch them once per
+        // card. No "await": the card shows right away while rulings load.
+        loadRulings(card.rulings_uri, myToken);
       } catch (err) {
         if (myToken !== state.loadToken) return;
         setHint(err.message || 'Something went wrong.', true);
@@ -1205,6 +1270,53 @@
       flipButton.hidden = true;
       shareButton.hidden = true;
       cardInfo.innerHTML = '';
+      rulingsBox.hidden = true;
+      rulingsBody.innerHTML = '';
+    }
+
+    /* =====================================================================
+       NOTES AND RULES
+       ===================================================================== */
+
+    // Who published a ruling: Scryfall marks official ones as "wotc".
+    const RULING_SOURCES = { wotc: 'Wizards of the Coast', scryfall: 'Scryfall' };
+
+    // Turn "2011-09-22" into a friendly date like "Sep 22, 2011".
+    // (timeZone UTC stops the date shifting a day in some time zones.)
+    function formatDate(isoDate) {
+      return new Date(isoDate).toLocaleDateString(undefined,
+        { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
+    }
+
+    // Show a single line of text in the box (loading, empty, or error).
+    function showRulingsMessage(message) {
+      rulingsBody.innerHTML = `<p class="rulings-message">${escapeHtml(message)}</p>`;
+    }
+
+    // Download the official rulings for a card and list them, oldest first
+    // (the order Scryfall sends them). "token" is the card lookup they belong
+    // to; if a newer card was opened meanwhile, the results are thrown away.
+    async function loadRulings(rulingsUrl, token) {
+      rulingsBox.hidden = false;
+      showRulingsMessage('Loading rulings…');
+      try {
+        const rulings = await fetchAllPages(rulingsUrl);
+        if (token !== state.loadToken) return;
+        if (!rulings.length) {
+          showRulingsMessage('There are no rulings for this card.');
+          return;
+        }
+        rulingsBody.innerHTML = '<ul class="rulings-list">' + rulings.map((r) =>
+          '<li>' +
+            `<span class="ruling-date">${escapeHtml(formatDate(r.published_at))}` +
+            ` · ${escapeHtml(RULING_SOURCES[r.source] || r.source)}</span>` +
+            escapeHtml(r.comment) +
+          '</li>'
+        ).join('') + '</ul>';
+      } catch (err) {
+        if (token !== state.loadToken) return;
+        showRulingsMessage('Rulings could not be loaded right now.');
+      }
     }
 
     /* =====================================================================
